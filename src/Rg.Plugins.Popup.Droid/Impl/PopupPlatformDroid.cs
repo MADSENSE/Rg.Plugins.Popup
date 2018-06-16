@@ -1,24 +1,23 @@
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 using Android.App;
+using Android.OS;
+using Android.Provider;
 using Android.Runtime;
 using Android.Widget;
 using Rg.Plugins.Popup.Contracts;
 using Rg.Plugins.Popup.Droid.Extensions;
-using Rg.Plugins.Popup.Droid.Helpers;
 using Rg.Plugins.Popup.Droid.Impl;
 using Rg.Plugins.Popup.Pages;
 using Rg.Plugins.Popup.Services;
 using Xamarin.Forms;
-using Xamarin.Forms.Platform.Android;
 using XApplication = Xamarin.Forms.Application;
 
 [assembly: Dependency(typeof(PopupPlatformDroid))]
 namespace Rg.Plugins.Popup.Droid.Impl
 {
     [Preserve(AllMembers = true)]
-    class PopupPlatformDroid : IPopupPlatform
+    internal class PopupPlatformDroid : IPopupPlatform
     {
         private IPopupNavigation PopupNavigationInstance => PopupNavigation.Instance;
 
@@ -32,6 +31,8 @@ namespace Rg.Plugins.Popup.Droid.Impl
 
         public bool IsInitialized => Popup.IsInitialized;
 
+        public bool IsSystemAnimationEnabled => GetIsSystemAnimationEnabled();
+
         public async Task AddAsync(PopupPage page)
         {
             var decoreView = DecoreView;
@@ -41,7 +42,6 @@ namespace Rg.Plugins.Popup.Droid.Impl
             var renderer = page.GetOrCreateRenderer();
 
             decoreView.AddView(renderer.View);
-            UpdateListeners(true);
 
             await Task.Delay(5);
         }
@@ -58,67 +58,37 @@ namespace Rg.Plugins.Popup.Droid.Impl
 
                 if(element != null)
                     element.Parent = null;
-
-                UpdateListeners(false);
             }
 
             await Task.Delay(5);
         }
 
-        #region Listeners
+        #region System Animation
 
-        private void UpdateListeners(bool isAdd)
+        private bool GetIsSystemAnimationEnabled()
         {
-            var isPrevent = PopupNavigationInstance.PopupStack.Count > 0 || isAdd;
+            float animationScale;
+            var context = Popup.Context;
 
-            if (Popup.Context is FormsApplicationActivity)
+            if (context == null)
+                return false;
+
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.JellyBeanMr1)
             {
-                var handleBackPressed = (FormsApplicationActivity.BackButtonPressedEventHandler)PlatformHelper.GetHandleBackPressed<FormsApplicationActivity.BackButtonPressedEventHandler>();
-                FormsApplicationActivity.BackPressed -= handleBackPressed;
-                FormsApplicationActivity.BackPressed -= OnBackPressed;
-                if (!isPrevent)
-                {
-                    FormsApplicationActivity.BackPressed += handleBackPressed;
-                }
-                else
-                {
-                    FormsApplicationActivity.BackPressed += OnBackPressed;
-                }
-
+                animationScale = Settings.Global.GetFloat(
+                    context.ContentResolver,
+                    Settings.Global.AnimatorDurationScale,
+                    1);
             }
-            else if (Popup.Context is FormsAppCompatActivity)
+            else
             {
-                var handleBackPressed = (FormsAppCompatActivity.BackButtonPressedEventHandler)PlatformHelper.GetHandleBackPressed<FormsAppCompatActivity.BackButtonPressedEventHandler>();
-                FormsAppCompatActivity.BackPressed -= handleBackPressed;
-                FormsAppCompatActivity.BackPressed -= OnBackPressed;
-                if (!isPrevent)
-                {
-                    FormsAppCompatActivity.BackPressed += handleBackPressed;
-                }
-                else
-                {
-                    FormsAppCompatActivity.BackPressed += OnBackPressed;
-                }
+                animationScale = Settings.System.GetFloat(
+                    context.ContentResolver,
+                    Settings.System.AnimatorDurationScale,
+                    1);
             }
-        }
 
-        private bool OnBackPressed(object sender, EventArgs e)
-        {
-            if (PopupNavigationInstance.PopupStack.Count > 0)
-            {
-                var lastPage = PopupNavigationInstance.PopupStack.Last();
-
-                var isPreventClose = lastPage.IsBeingDismissed || lastPage.SendBackButtonPressed();
-
-                if (!isPreventClose)
-                {
-                    Device.BeginInvokeOnMainThread(async () =>
-                    {
-                        await PopupNavigationInstance.PopAsync();
-                    });
-                }
-            }
-            return true;
+            return animationScale > 0;
         }
 
         #endregion
